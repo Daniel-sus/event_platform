@@ -15,15 +15,9 @@ import Event from "../database/models/event.model";
 import Category from "../database/models/category.model";
 import { revalidatePath } from "next/cache";
 
-// const populateEvent = async (query: any) => {
-//   return query
-//     .populate({
-//       path: "organizer",
-//       model: User,
-//       select: "_id firstname lastname",
-//     })
-//     .populate({ path: "category", model: Category, select: "_id name" });
-// };
+const getCategoryByName = async (name: string) => {
+  return Category.findOne({ name: { $regex: name, $options: "i" } });
+};
 
 const populateEvent = (query: any) => {
   return query
@@ -82,30 +76,36 @@ export const getEventById = async (eventId: string) => {
   }
 };
 
-export const getAllEvents = async ({
+export async function getAllEvents({
   query,
   limit = 6,
   page,
   category,
-}: GetAllEventsParams) => {
+}: GetAllEventsParams) {
   try {
     await connectToDatabase();
 
-    const conditions = {};
+    const titleCondition = query
+      ? { title: { $regex: query, $options: "i" } }
+      : {};
+    const categoryCondition = category
+      ? await getCategoryByName(category)
+      : null;
+    const conditions = {
+      $and: [
+        titleCondition,
+        categoryCondition ? { category: categoryCondition._id } : {},
+      ],
+    };
 
+    const skipAmount = (Number(page) - 1) * limit;
     const eventsQuery = Event.find(conditions)
-      .sort({
-        createdAt: "desc",
-      })
-      .skip(0)
+      .sort({ createdAt: "desc" })
+      .skip(skipAmount)
       .limit(limit);
 
     const events = await populateEvent(eventsQuery);
     const eventsCount = await Event.countDocuments(conditions);
-
-    if (!events) {
-      throw new Error("Events not found");
-    }
 
     return {
       data: JSON.parse(JSON.stringify(events)),
@@ -114,7 +114,7 @@ export const getAllEvents = async ({
   } catch (error) {
     handleError(error);
   }
-};
+}
 
 export async function updateEvent({ userId, event, path }: UpdateEventParams) {
   try {
